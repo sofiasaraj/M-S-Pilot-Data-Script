@@ -9,12 +9,168 @@
 
 library(dplyr)
 library(readr)
+library(ggplot2)
+library(data.table)
 ```
 
-```{r}
-df <- list.files("data", full.names = TRUE, pattern = "\\.csv$") %>% 
-  lapply(read_csv) %>%
-  lapply(bind_rows)
 
-df %>% lapply(mutate(x="hello"))
+## Read data file into a dataframe df
+
+```{r read_data}
+df <- as_tibble(paste0("data/", list.files(path="data", pattern = ".csv")) %>% sapply(read_csv) %>% plyr::rbind.fill())
 ```
+
+## Calculate the ratings for the English AJT for each condition
+
+```{r ajt}
+eng_ajt_trials <- filter(df, ajt_list %in% c(1, 2, 3, 4)) %>% 
+  select("Participant ID", Session, ajt_list, condition, acceptability.response, acceptability.rt) %>% 
+  group_by(Session, condition)
+
+eng_ajt_sess1_summary <- eng_ajt_trials %>% filter(Session == 1) %>% 
+  group_by(condition) %>%
+  summarise(mean_rating = mean(acceptability.response),
+            rating_sd = sd(acceptability.response),
+            mean_rt = mean(acceptability.rt),
+            rt_sd = sd(acceptability.rt),
+            n = n(),
+            rating_se = rating_sd/sqrt(n),
+            rt_se = rt_sd/sqrt(n))
+
+eng_ajt_sess1_summary
+
+ggplot(aes(x = condition, y = mean_rating, 
+           ymin = mean_rating-rating_se, ymax = mean_rating+rating_se,
+           fill = condition), 
+       data=eng_ajt_sess1_summary) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_errorbar(position = "dodge")
+
+ggplot(aes(x = condition, y = mean_rt, 
+           ymin = mean_rt-rt_se, ymax = mean_rt+rt_se,
+           fill = condition), 
+       data=eng_ajt_sess1_summary) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_errorbar(position = "dodge")
+
+eng_ajt_comparisons <- tribble(
+  ~conditions, ~mean_diff,
+  "AS-ASV", filter(eng_ajt_sess1_summary, condition == "AS")$mean_rating-filter(eng_ajt_sess1_summary, condition == "ASV")$mean_rating,
+  "WO-WOV", filter(eng_ajt_sess1_summary, condition == "WO")$mean_rating-filter(eng_ajt_sess1_summary, condition == "WOV")$mean_rating,
+  "filler-control", filter(eng_ajt_sess1_summary, condition == "filler")$mean_rating-filter(eng_ajt_sess1_summary, condition == "control")$mean_rating,
+  "AS-filler", filter(eng_ajt_sess1_summary, condition == "AS")$mean_rating-filter(eng_ajt_sess1_summary, condition == "filler")$mean_rating, # greater than 0 means the AS sentences are more acceptable than grammatical controls, less than 0 means the AS sentences are less acceptable
+  "WO-filler", filter(eng_ajt_sess1_summary, condition == "WO")$mean_rating-filter(eng_ajt_sess1_summary, condition == "filler")$mean_rating,
+  "AS-WO", filter(eng_ajt_sess1_summary, condition == "AS")$mean_rating-filter(eng_ajt_sess1_summary, condition == "WO")$mean_rating, # greater than 0 means the AS sentences are more acceptable than WO sentences, less than 0 means the AS sentences are less acceptable
+  "ASV-filler", filter(eng_ajt_sess1_summary, condition == "ASV")$mean_rating-filter(eng_ajt_sess1_summary, condition == "filler")$mean_rating, # greater than 0 means the ASV sentences are more acceptable than grammatical controls, less than 0 means the ASV sentences are less acceptable (as expected)
+  "WOV-filler", filter(eng_ajt_sess1_summary, condition == "WOV")$mean_rating-filter(eng_ajt_sess1_summary, condition == "filler")$mean_rating,
+  "ASV-control", filter(eng_ajt_sess1_summary, condition == "ASV")$mean_rating-filter(eng_ajt_sess1_summary, condition == "control")$mean_rating, # greater than 0 means the ASV sentences are more acceptable than ungrammatical controls, less than 0 means the ASV sentences are less acceptable
+  "WOV-control", filter(eng_ajt_sess1_summary, condition == "WOV")$mean_rating-filter(eng_ajt_sess1_summary, condition == "control")$mean_rating,
+  "ASV-WOV", filter(eng_ajt_sess1_summary, condition == "ASV")$mean_rating-filter(eng_ajt_sess1_summary, condition == "WOV")$mean_rating, # greater than 0 means the ASV sentences are more acceptable than WOV sentences, less than 0 means the ASV sentences are less acceptable
+)
+
+eng_ajt_comparisons
+```
+
+
+## Calculate CVMT accuracy as percentage
+
+Figure out how to calculate d' measure later
+
+```{r cvmt}
+cvmt_trials <- filter(df, !is.na(presentDesign.started)) %>%
+  select("Participant ID", cvmt_design, cvmt_key_resp.keys, cvmt_key_resp.corr, cvmt_key_resp.rt, cvmt_key_resp2.keys, cvmt_key_resp2.corr)
+
+
+cvmt_test_only <- cvmt_trials %>% filter(cvmt_design %like% "cvmt/test_items/") %>%
+  mutate(correct = if_else(cvmt_key_resp.keys != "None", cvmt_key_resp.corr, 
+                           if_else(cvmt_key_resp2.keys != "None", cvmt_key_resp2.corr, 0)))
+
+cvmt_subj_acc <- cvmt_test_only %>% 
+  group_by(`Participant ID`) %>%
+  summarise(accuracy = sum(correct)/nrow(cvmt_test_only))
+
+cvmt_group_acc <- filter(cvmt_subj_acc, !is.na(accuracy)) %>%
+  summarise(mean_acc = mean(accuracy),
+            acc_sd = sd(accuracy),
+            acc_se = acc_sd/sqrt(nrow(cvmt_subj_acc)))
+
+cvmt_subj_acc
+cvmt_group_acc
+```
+
+
+## Analyze the sentence practice trials from session 1
+
+### Comprehension block trials
+
+```{r comp_prax}
+comp_prax_trials <- filter(df, !is.na(sentPrax_C_resp.corr))
+
+comp_prax_trials <- comp_prax_trials %>%
+  filter(`Participant ID` %in% unique(comp_prax_trials$`Participant ID`)) %>%
+  mutate(module = lapply(1:(nrow(comp_prax_trials)/32), rep, 32) %>% unlist)
+
+comp_prax_subj_summary <- comp_prax_trials %>%
+  group_by(`Participant ID`, Session, module) %>%
+  summarise(accuracy = sum(sentPrax_C_resp.corr)/32,
+            mean_rt = mean(sentPrax_C_resp.rt),
+            rt_sd = sd(sentPrax_C_resp.rt))
+
+comp_prax_group_summary <- comp_prax_trials %>%
+#  ungroup() %>% group_by(Session, module) %>%
+  ungroup() %>% group_by(Session) %>%
+  summarise(mean_rt = mean(sentPrax_C_resp.rt),
+            rt_sd = sd(sentPrax_C_resp.rt),
+            rt_se = rt_sd/sqrt(nrow(comp_prax_subj_summary)/4)) %>%
+#  mutate(mean_acc = summarise(comp_prax_subj_summary %>% ungroup() %>% group_by(Session, module), mean = mean(accuracy)) %>% .$mean)
+  mutate(mean_acc = summarise(comp_prax_subj_summary %>% ungroup() %>% group_by(Session), mean = mean(accuracy)) %>% .$mean)
+
+comp_prax_subj_summary
+comp_prax_group_summary
+```
+
+
+### Production block trials
+
+```{r prod_prax}
+prod_prax_trials <- filter(df, !is.na(sentPraxP_resp), !is.na(sentence)) %>%
+  select(`Participant ID`, Session, sentence, sentPraxP_resp, sentPrax_P_key_resp.rt) %>%
+  mutate(correct = if_else(sentPraxP_resp == sentence, 1, 0),
+         rt = as.double(gsub("\\]$", "", strsplit(sentPrax_P_key_resp.rt, ",") %>% sapply(last))))
+
+#prod_prax_trials <- prod_prax_trials %>%
+#  filter(`Participant ID` %in% unique(prod_prax_trials$`Participant ID`)) %>%
+#  mutate(module = lapply(1:(nrow(prod_prax_trials)/32), rep, 32) %>% unlist)
+
+prod_prax_subj_summary <- prod_prax_trials %>%
+#  group_by(`Participant ID`, Session, module) %>%
+  group_by(`Participant ID`, Session) %>%
+  summarise(accuracy = sum(correct)/32,
+            mean_rt = mean(rt),
+            rt_sd = sd(rt))
+
+prod_prax_group_summary <- filter(prod_prax_trials, !is.na(rt)) %>%
+#  ungroup() %>% group_by(Session, module) %>%
+  ungroup() %>% group_by(Session) %>%
+  summarise(mean_rt = mean(rt),
+            rt_sd = sd(rt),
+            rt_se = rt_sd/sqrt(nrow(prod_prax_subj_summary)/4)) %>%
+#  mutate(mean_acc = summarise(prod_prax_subj_summary %>% ungroup() %>% group_by(Session, module), mean = mean(accuracy)) %>% .$mean)
+  mutate(mean_acc = summarise(prod_prax_subj_summary %>% ungroup() %>% group_by(Session), mean = mean(accuracy)) %>% .$mean)
+
+prod_prax_subj_summary
+prod_prax_group_summary
+```
+
+
+
+
+
+
+
+
+
+
+
+
+
