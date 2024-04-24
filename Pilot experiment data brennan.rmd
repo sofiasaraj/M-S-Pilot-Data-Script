@@ -1,16 +1,9 @@
 ```{r setup, include=F}
-
-# setwd("/Users/sofiasaraj/Downloads/data 6")
-# options(scipen=100)
-# view(setwd("/Users/sofiasaraj/Downloads/data 6"))
-# subset("/Users/sofiasaraj/Downloads/data 6", data 6$Participant==1)
-# mands <-read.csv(file="1_Memory and Syntax_2023-02-20_16h57.41.064.csv")
-# psych::describe(mands$participant)
-
 library(dplyr)
 library(readr)
 library(ggplot2)
 library(data.table)
+library(openxlsx)
 ```
 
 
@@ -44,14 +37,23 @@ ggplot(aes(x = condition, y = mean_rating,
            fill = condition), 
        data=eng_ajt_sess1_summary) +
   geom_bar(stat = "identity", position = "dodge") +
-  geom_errorbar(position = "dodge")
+  scale_x_discrete(labels=c("Argument structure\ncontrol", "Argument structure\nviolation", "Ungrammatical control", "Grammatical filler", "Word order\ncontrol", "Word order\nviolation")) +
+  scale_y_continuous(name="Acceptability rating",
+                     breaks=c(1, 2, 3, 4, 5, 6, 7), limits=c(0, 7)) +
+  geom_errorbar(position = "dodge") +
+  labs(x="Condition") +
+  theme(legend.position = "none")
 
 ggplot(aes(x = condition, y = mean_rt, 
            ymin = mean_rt-rt_se, ymax = mean_rt+rt_se,
            fill = condition), 
        data=eng_ajt_sess1_summary) +
   geom_bar(stat = "identity", position = "dodge") +
-  geom_errorbar(position = "dodge")
+  geom_errorbar(position = "dodge") +
+  scale_x_discrete(labels=c("Argument structure\ncontrol", "Argument structure\nviolation", "Ungrammatical control", "Grammatical filler", "Word order\ncontrol", "Word order\nviolation")) +
+  labs(x="Condition") +
+  theme(legend.position = "none") +
+  labs(y="Reaction time (s)")
 
 eng_ajt_comparisons <- tribble(
   ~conditions, ~mean_diff,
@@ -80,22 +82,125 @@ Figure out how to calculate d' measure later
 cvmt_trials <- filter(df, !is.na(presentDesign.started)) %>%
   select("Participant ID", cvmt_design, cvmt_key_resp.keys, cvmt_key_resp.corr, cvmt_key_resp.rt, cvmt_key_resp2.keys, cvmt_key_resp2.corr)
 
-
 cvmt_test_only <- cvmt_trials %>% filter(cvmt_design %like% "cvmt/test_items/") %>%
+  left_join(read.xlsx("data/task_stims.xlsx") %>% rename(answer=old_or_new), by="cvmt_design") %>%
   mutate(correct = if_else(cvmt_key_resp.keys != "None", cvmt_key_resp.corr, 
-                           if_else(cvmt_key_resp2.keys != "None", cvmt_key_resp2.corr, 0)))
+                           if_else(cvmt_key_resp2.keys != "None", cvmt_key_resp2.corr, 0)),
+         fa = if_else(answer == "n", if_else(cvmt_key_resp.keys == "o", 1, 0), 0))
 
-cvmt_subj_acc <- cvmt_test_only %>% 
+hits_z_tab <- tribble(
+  ~hits, ~z,
+  42, 2.58,
+  41, 2.05,
+  40, 1.64,
+  39, 1.48,
+  38, 1.28,
+  37, 1.18,
+  36, 1.08,
+  35, 0.95,
+  34, 0.88,
+  33, 0.81,
+  32, 0.71,
+  31, 0.64,
+  30, 0.55,
+  29, 0.50,
+  28, 0.44,
+  27, 0.36,
+  26, 0.31,
+  25, 0.25,
+  24, 0.18,
+  23, 0.13,
+  22, 0.05,
+  21, 0.00,
+  20, -0.05,
+  19, -0.13,
+  18, -0.18,
+  17, -0.25,
+  16, -0.31,
+  15, -0.36,
+  14, -0.44,
+  13, -0.50,
+  12, -0.55,
+  11, -0.64,
+  10, -0.71,
+  9, -0.81,
+  8, -0.88,
+  7, -0.99,
+  6, -1.08,
+  5, -1.23,
+  4, -1.34,
+  3, -1.48,
+  2, -1.75,
+  1, -2.05
+)
+
+fa_z_tab <- tribble(
+  ~false_alarms, ~z,
+  0, -2.33,
+  1, -2.05,
+  2, -1.75,
+  3, -1.55,
+  4, -1.48,
+  5, -1.34,
+  6, -1.23,
+  7, -1.13,
+  8, -1.04,
+  9, -0.95,
+  10, -0.88,
+  11, -0.84,
+  12, -0.77,
+  13, -0.71,
+  14, -0.64,
+  15, -0.58,
+  16, -0.52,
+  17, -0.50,
+  18, -0.44,
+  19, -0.39,
+  20, -0.33,
+  21, -0.28,
+  22, -0.23,
+  23, -0.18,
+  24, -0.15,
+  25, -0.10,
+  26, -0.05,
+  27, 0.00,
+  28, 0.05,
+  29, 0.10,
+  30, 0.15,
+  31, 0.18,
+  32, 0.23,
+  33, 0.28,
+  34, 0.31,
+  35, 0.36,
+  36, 0.41,
+  37, 0.47,
+  38, 0.52,
+  39, 0.58,
+  40, 0.64
+)
+
+cvmt_subj_summary <- cvmt_test_only %>% 
   group_by(`Participant ID`) %>%
-  summarise(accuracy = sum(correct)/nrow(cvmt_test_only))
+  mutate(hit = if_else(answer == "o", if_else(correct==1, 1, 0), 0)) %>%
+  summarise(accuracy = sum(correct, na.rm = TRUE)/112,
+            hits = sum(hit, na.rm = TRUE),
+            false_alarms = sum(fa, na.rm = TRUE)) %>% 
+  left_join(hits_z_tab, by="hits") %>% 
+  rename(z.hits = z) %>% 
+  left_join(fa_z_tab, by="false_alarms") %>% 
+  rename(z.fa = z) %>% 
+  mutate(d_prime = z.hits - z.fa)
 
-cvmt_group_acc <- filter(cvmt_subj_acc, !is.na(accuracy)) %>%
+cvmt_group_summary <- filter(cvmt_subj_summary, !is.na(accuracy)) %>%
   summarise(mean_acc = mean(accuracy),
             acc_sd = sd(accuracy),
-            acc_se = acc_sd/sqrt(nrow(cvmt_subj_acc)))
+            acc_se = acc_sd/sqrt(nrow(cvmt_subj_summary)),
+            mean_d_pr = mean(d_prime, na.rm = TRUE),
+            d_pr_sd = sd(!is.na(d_prime)),
+            d_pr_se = d_pr_sd/sqrt(nrow(cvmt_subj_summary)))
 
-cvmt_subj_acc
-cvmt_group_acc
+cvmt_subj_summary
+cvmt_group_summary
 ```
 
 
@@ -162,9 +267,31 @@ prod_prax_subj_summary
 prod_prax_group_summary
 ```
 
+### Comprehension vs production results
+
+```{r}
+comp_prod_group_summary <- rbind(mutate(comp_prax_group_summary, condition="Comprehension trials"), 
+                                  mutate(prod_prax_group_summary, condition="Production trials"))
 
 
+ggplot(aes(x = condition, y = mean_acc, fill = condition), 
+       data=filter(comp_prod_group_summary, Session==1)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  scale_y_continuous(labels = c("0", "25","50", "75", "100"), limits = c(0, 1)) +
+  labs(x="Condition",
+       y="Accuracy (%)") +
+  theme(legend.position = "none")
 
+ggplot(aes(x = condition, y = mean_rt, 
+           ymin = mean_rt-rt_se, ymax = mean_rt+rt_se,
+           fill = condition), 
+       data=filter(comp_prod_group_summary, Session==1)) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_errorbar(position = "dodge") +
+  labs(x="Condition",
+       y="Reaction time (s)") +
+  theme(legend.position = "none")
+```
 
 
 
