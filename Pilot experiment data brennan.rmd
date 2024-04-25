@@ -226,7 +226,8 @@ comp_prax_group_summary <- comp_prax_trials %>%
   ungroup() %>% group_by(Session) %>%
   summarise(mean_rt = mean(sentPrax_C_resp.rt),
             rt_sd = sd(sentPrax_C_resp.rt),
-            rt_se = rt_sd/sqrt(nrow(comp_prax_subj_summary)/4)) %>%
+            n = length(unique(comp_prax_subj_summary$`Participant ID`)),
+            rt_se = rt_sd/sqrt(n)) %>%
 #  mutate(mean_acc = summarise(comp_prax_subj_summary %>% ungroup() %>% group_by(Session, module), mean = mean(accuracy)) %>% .$mean)
   mutate(mean_acc = summarise(comp_prax_subj_summary %>% ungroup() %>% group_by(Session), mean = mean(accuracy)) %>% .$mean)
 
@@ -259,7 +260,8 @@ prod_prax_group_summary <- filter(prod_prax_trials, !is.na(rt)) %>%
   ungroup() %>% group_by(Session) %>%
   summarise(mean_rt = mean(rt),
             rt_sd = sd(rt),
-            rt_se = rt_sd/sqrt(nrow(prod_prax_subj_summary)/4)) %>%
+            n = length(unique(prod_prax_subj_summary$`Participant ID`)),
+            rt_se = rt_sd/sqrt(n)) %>%
 #  mutate(mean_acc = summarise(prod_prax_subj_summary %>% ungroup() %>% group_by(Session, module), mean = mean(accuracy)) %>% .$mean)
   mutate(mean_acc = summarise(prod_prax_subj_summary %>% ungroup() %>% group_by(Session), mean = mean(accuracy)) %>% .$mean)
 
